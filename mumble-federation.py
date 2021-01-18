@@ -15,7 +15,7 @@ connections = []
 chunks = [None for _ in servers]
 locks = [Lock() for _ in servers]
 
-def onAudioClosure(receiver, name):
+def onAudioClosure(receiver):
 	def onAudio(user, chunk):
 		for i, conn in enumerate(connections):
 			if conn == receiver:
@@ -35,7 +35,7 @@ def onAudioClosure(receiver, name):
 for host, port, nick in servers:
 	print("connecting to {}:{} as {}".format(host, port, nick))
 	conn = pymumble3.Mumble(host, nick, port=port)
-	conn.callbacks.set_callback(PCS, onAudioClosure(conn, "{}:{}".format(host, port)))
+	conn.callbacks.set_callback(PCS, onAudioClosure(conn))
 	conn.set_receive_sound(1)
 	conn.start()
 	conn.is_ready()
