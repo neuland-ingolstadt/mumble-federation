@@ -2,7 +2,9 @@ import time
 import numpy as np
 from threading import Lock
 import pymumble_py3 as pymumble3
-from pymumble_py3.callbacks import PYMUMBLE_CLBK_SOUNDRECEIVED as PCS
+from pymumble_py3.callbacks import \
+	PYMUMBLE_CLBK_SOUNDRECEIVED as ON_SOUND, \
+	PYMUMBLE_CLBK_TEXTMESSAGERECEIVED as ON_TEXT
 
 servers = [
 	# host, port, nickname
@@ -21,17 +23,34 @@ class MumbleServerInstance:
 		self.chunk = None
 
 		self.connection = pymumble3.Mumble(host, nick, port=port)
-		self.connection.callbacks.set_callback(PCS, self.onAudio)
+		self.connection.callbacks.set_callback(ON_SOUND, self.onAudio)
+		self.connection.callbacks.set_callback(ON_TEXT, self.onText)
 		self.connection.set_receive_sound(1)
 		self.connection.start()
 		self.connection.is_ready()
 
-	def onAudio(self, user, chunk):
-		pcm = np.frombuffer(chunk.pcm, np.int16)
+		#time.sleep(1)
+		#users = self.connection.users
+		#for session in users:
+		#	user = users[session]
+		#print(self.connection.channels.get_tree(0))
 
+	def forAllOthers(self, f):
 		for instance in instances:
 			if instance != self:
-				instance.addAudioSignal(pcm)
+				f(instance)
+
+	def onText(self, msg):
+		sender = self.connection.users[msg.actor]
+		self.forAllOthers(lambda x: x.transmitText("[{}]: {}".format(sender["name"], msg.message)))
+
+	def transmitText(self, text):
+		channel = self.connection.my_channel()
+		channel.send_text_message(text)
+
+	def onAudio(self, user, chunk):
+		pcm = np.frombuffer(chunk.pcm, np.int16)
+		self.forAllOthers(lambda x: x.addAudioSignal(pcm))
 
 	def addAudioSignal(self, pcm):
 		self.mutex.acquire()
