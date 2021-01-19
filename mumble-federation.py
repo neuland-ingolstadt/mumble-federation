@@ -29,12 +29,6 @@ class MumbleServerInstance:
 		self.connection.start()
 		self.connection.is_ready()
 
-		#time.sleep(1)
-		#users = self.connection.users
-		#for session in users:
-		#	user = users[session]
-		#print(self.connection.channels.get_tree(0))
-
 	def forAllOthers(self, f):
 		for instance in instances:
 			if instance != self:
