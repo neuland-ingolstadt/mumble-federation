@@ -6,47 +6,57 @@ from pymumble_py3.callbacks import PYMUMBLE_CLBK_SOUNDRECEIVED as PCS
 
 servers = [
 	# host, port, nickname
-	("hopfenspace.org", 64738, "portal-to-neuland"),
-	("informatik.sexy", 64738, "portal-to-hopfenspace"),
+	("hopfenspace.org", 64738, "dev-portal-to-neuland"),
+	("informatik.sexy", 64738, "dev-portal-to-hopfenspace"),
 ]
 
-mutex = Lock()
-connections = []
-chunks = [None for _ in servers]
-locks = [Lock() for _ in servers]
+instances = []
 
-def onAudioClosure(receiver):
-	def onAudio(user, chunk):
-		for i, conn in enumerate(connections):
-			if conn == receiver:
-				continue
+class MumbleServerInstance:
+	mutex: Lock
+	chunk: np.array
 
-			pcm = np.frombuffer(chunk.pcm, np.int16)
+	def __init__(self, host, nick, port=64738, password=''):
+		self.mutex = Lock()
+		self.chunk = None
 
-			locks[i].acquire()
-			if chunks[i] is None:
-				chunks[i] = pcm
-			else:
-				chunks[i] = np.add(chunks[i], pcm)
-			locks[i].release()
+		self.connection = pymumble3.Mumble(host, nick, port=port)
+		self.connection.callbacks.set_callback(PCS, self.onAudio)
+		self.connection.set_receive_sound(1)
+		self.connection.start()
+		self.connection.is_ready()
 
-	return onAudio
+	def onAudio(self, user, chunk):
+		pcm = np.frombuffer(chunk.pcm, np.int16)
 
-for host, port, nick in servers:
-	print("connecting to {}:{} as {}".format(host, port, nick))
-	conn = pymumble3.Mumble(host, nick, port=port)
-	conn.callbacks.set_callback(PCS, onAudioClosure(conn))
-	conn.set_receive_sound(1)
-	conn.start()
-	conn.is_ready()
+		for instance in instances:
+			if instance != self:
+				instance.addAudioSignal(pcm)
 
-	connections.append(conn)
+	def addAudioSignal(self, pcm):
+		self.mutex.acquire()
+		if self.chunk is None:
+			self.chunk = np.copy(pcm)
+		else:
+			self.chunk += pcm
+		self.mutex.release()
 
-while True:
-	for i, conn in enumerate(connections):
-		locks[i].acquire()
-		if chunks[i] is not None:
-			conn.sound_output.add_sound(chunks[i].tobytes())
-			chunks[i] = None
-		locks[i].release()
-	time.sleep(0.02)
+	def transmitAudio(self):
+		self.mutex.acquire()
+		if self.chunk is not None:
+			self.connection.sound_output.add_sound(self.chunk.tobytes())
+			self.chunk = None
+		self.mutex.release()
+
+def main():
+	for host, port, nick in servers:
+		print("connecting to {}:{} as {}".format(host, port, nick))
+		instances.append(MumbleServerInstance(host, nick, port))
+
+	while True:
+		for instance in instances:
+			instance.transmitAudio()
+		time.sleep(0.02)
+
+if __name__ == "__main__":
+    main()
