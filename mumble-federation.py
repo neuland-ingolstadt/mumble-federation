@@ -22,7 +22,7 @@ class MumbleServerInstance:
 		self.mutex = Lock()
 		self.chunk = None
 
-		self.connection = pymumble3.Mumble(host, nick, port=port)
+		self.connection = pymumble3.Mumble(host, nick, port=port, password=password)
 		self.connection.callbacks.set_callback(ON_SOUND, self.onAudio)
 		self.connection.callbacks.set_callback(ON_TEXT, self.onText)
 		self.connection.set_receive_sound(1)
@@ -36,21 +36,21 @@ class MumbleServerInstance:
 
 	def updateComment(self):
 		me = self.connection.users.myself
-		if me == None:
+		if me is None: # this sometimes happens (during initialization?)
 			return
 
 		users = []
 		self.forAllOthers(lambda x: users.extend(x.getUsers()))
-		
+
 		if users:
 			comment = "<strong>Users on the other side:</strong>"
 			for user in users:
 				comment += "<br>* {}".format(user)
 		else:
 			comment = "No users on the other side."
-		
+
 		me.comment(comment)
-	
+
 	def getUsers(self):
 		me = self.connection.users.myself
 		for _, user in self.connection.users.items():
@@ -96,9 +96,10 @@ def main():
 		time.sleep(0.02)
 
 		i += 1
-		if i % 50 == 0:
+		if i >= 50:
 			for instance in instances:
 				instance.updateComment()
+			i = 0
 
 if __name__ == "__main__":
     main()
