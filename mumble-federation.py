@@ -34,6 +34,29 @@ class MumbleServerInstance:
 			if instance != self:
 				f(instance)
 
+	def updateComment(self):
+		me = self.connection.users.myself
+		if me == None:
+			return
+
+		users = []
+		self.forAllOthers(lambda x: users.extend(x.getUsers()))
+		
+		if users:
+			comment = "<strong>Users on the other side:</strong>"
+			for user in users:
+				comment += "<br>* {}".format(user)
+		else:
+			comment = "No users on the other side."
+		
+		me.comment(comment)
+	
+	def getUsers(self):
+		me = self.connection.users.myself
+		for _, user in self.connection.users.items():
+			if user['name'] != me['name'] and user['channel_id'] == me['channel_id']:
+				yield user['name']
+
 	def onText(self, msg):
 		sender = self.connection.users[msg.actor]
 		self.forAllOthers(lambda x: x.transmitText("[{}]: {}".format(sender["name"], msg.message)))
@@ -66,10 +89,16 @@ def main():
 		print("connecting to {}:{} as {}".format(host, port, nick))
 		instances.append(MumbleServerInstance(host, nick, port))
 
+	i = 0
 	while True:
 		for instance in instances:
 			instance.transmitAudio()
 		time.sleep(0.02)
+
+		i += 1
+		if i % 50 == 0:
+			for instance in instances:
+				instance.updateComment()
 
 if __name__ == "__main__":
     main()
