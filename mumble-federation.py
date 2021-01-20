@@ -17,10 +17,12 @@ instances = []
 class MumbleServerInstance:
 	mutex: Lock
 	chunk: np.array
+	remote_users: list
 
 	def __init__(self, host, nick, port=64738, password=''):
 		self.mutex = Lock()
 		self.chunk = None
+		self.remote_users = []
 
 		self.connection = pymumble3.Mumble(host, nick, port=port, password=password)
 		self.connection.callbacks.set_callback(ON_SOUND, self.onAudio)
@@ -41,6 +43,18 @@ class MumbleServerInstance:
 
 		users = []
 		self.forAllOthers(lambda x: users.extend(x.getUsers()))
+
+		if self.remote_users == users:
+			return
+
+		for user in users:
+			if user not in self.remote_users:
+				self.transmitText("* User {} joined".format(user))
+		for user in self.remote_users:
+			if user not in users:
+				self.transmitText("* User {} left".format(user))
+
+		self.remote_users = users
 
 		if users:
 			comment = "<strong>Users on the other side:</strong>"
