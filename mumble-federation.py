@@ -8,22 +8,19 @@ from pymumble_py3.callbacks import \
 
 servers = [
 	# host, port, nickname
-	("hopfenspace.org", 64738, "portal-to-neuland"),
-	("informatik.sexy", 64738, "portal-to-hopfenspace"),
+	("hopfenspace.org", 64738, "dev-portal-to-neuland"),
+	("informatik.sexy", 64738, "dev-portal-to-hopfenspace"),
 ]
 
 instances = []
 
 class MumbleServerInstance:
-	mutex: Lock
-	chunk: np.array
+	remote_users: list
 
 	def __init__(self, host, nick, port=64738, password=''):
-		self.mutex = Lock()
-		self.chunk = None
+		self.remote_users = []
 
 		self.connection = pymumble3.Mumble(host, nick, port=port, password=password)
-		self.connection.callbacks.set_callback(ON_SOUND, self.onAudio)
 		self.connection.callbacks.set_callback(ON_TEXT, self.onText)
 		self.connection.set_receive_sound(1)
 		self.connection.start()
@@ -34,13 +31,25 @@ class MumbleServerInstance:
 			if instance != self:
 				f(instance)
 
-	def updateComment(self):
+	def updateUserList(self):
 		me = self.connection.users.myself
 		if me is None: # this sometimes happens (during initialization?)
 			return
 
 		users = []
-		self.forAllOthers(lambda x: users.extend(x.getUsers()))
+		self.forAllOthers(lambda x: users.extend(x.getUserNicks()))
+
+		if self.remote_users == users:
+			return
+
+		for user in users:
+			if user not in self.remote_users:
+				self.transmitText("* User {} joined".format(user))
+		for user in self.remote_users:
+			if user not in users:
+				self.transmitText("* User {} left".format(user))
+
+		self.remote_users = users
 
 		if users:
 			comment = "<strong>Users on the other side:</strong>"
@@ -51,11 +60,15 @@ class MumbleServerInstance:
 
 		me.comment(comment)
 
+	def getUserNicks(self):
+		for user in self.getUsers():
+			yield user['name']
+
 	def getUsers(self):
 		me = self.connection.users.myself
 		for _, user in self.connection.users.items():
 			if user['name'] != me['name'] and user['channel_id'] == me['channel_id']:
-				yield user['name']
+				yield user
 
 	def onText(self, msg):
 		sender = self.connection.users[msg.actor]
@@ -65,24 +78,22 @@ class MumbleServerInstance:
 		channel = self.connection.my_channel()
 		channel.send_text_message(text)
 
-	def onAudio(self, user, chunk):
-		pcm = np.frombuffer(chunk.pcm, np.int16)
-		self.forAllOthers(lambda x: x.addAudioSignal(pcm))
+	def sendAudioToOthers(self):
+		pcm = None
+		for user in self.getUsers():
+			chunk = user.sound.get_sound(0.01)
+			if chunk is None:
+				continue
 
-	def addAudioSignal(self, pcm):
-		self.mutex.acquire()
-		if self.chunk is None:
-			self.chunk = np.copy(pcm)
-		else:
-			self.chunk += pcm
-		self.mutex.release()
+			userPcm = np.frombuffer(chunk.pcm, np.int16)
+			if pcm is None:
+				pcm = np.copy(userPcm)
+			else:
+				pcm += userPcm
 
-	def transmitAudio(self):
-		self.mutex.acquire()
-		if self.chunk is not None:
-			self.connection.sound_output.add_sound(self.chunk.tobytes())
-			self.chunk = None
-		self.mutex.release()
+		if pcm is not None:
+			pcm = pcm.tobytes()
+			self.forAllOthers(lambda x: x.connection.sound_output.add_sound(pcm))
 
 def main():
 	for host, port, nick in servers:
@@ -92,14 +103,15 @@ def main():
 	i = 0
 	while True:
 		for instance in instances:
-			instance.transmitAudio()
-		time.sleep(0.02)
+			instance.sendAudioToOthers()
 
 		i += 1
-		if i >= 50:
+		if i >= 100:
 			for instance in instances:
-				instance.updateComment()
+				instance.updateUserList()
 			i = 0
+
+		time.sleep(0.005)
 
 if __name__ == "__main__":
     main()
