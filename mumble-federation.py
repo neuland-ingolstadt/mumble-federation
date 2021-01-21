@@ -1,10 +1,12 @@
 import time
 import numpy as np
+import sys
 from threading import Lock
 import pymumble_py3 as pymumble3
 from pymumble_py3.callbacks import \
 	PYMUMBLE_CLBK_SOUNDRECEIVED as ON_SOUND, \
-	PYMUMBLE_CLBK_TEXTMESSAGERECEIVED as ON_TEXT
+	PYMUMBLE_CLBK_TEXTMESSAGERECEIVED as ON_TEXT, \
+	PYMUMBLE_CLBK_DISCONNECTED as ON_DISCONNECT
 
 servers = [
 	# host, port, nickname
@@ -27,6 +29,7 @@ class MumbleServerInstance:
 		self.connection = pymumble3.Mumble(host, nick, port=port, password=password)
 		self.connection.callbacks.set_callback(ON_SOUND, self.onAudio)
 		self.connection.callbacks.set_callback(ON_TEXT, self.onText)
+		self.connection.callbacks.set_callback(ON_DISCONNECT, self.onDisconnect)
 		self.connection.set_receive_sound(1)
 		self.connection.start()
 		self.connection.is_ready()
@@ -90,6 +93,9 @@ class MumbleServerInstance:
 		else:
 			self.chunk += pcm
 		self.mutex.release()
+
+	def onDisconnect(self):
+		sys.exit(1)
 
 	def transmitAudio(self):
 		self.mutex.acquire()
