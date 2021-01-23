@@ -18,12 +18,12 @@ instances = []
 
 class MumbleServerInstance:
 	mutex: Lock
-	chunk: np.array
+	chunk_queue: list
 	remote_users: list
 
 	def __init__(self, host, nick, port=64738, password=''):
 		self.mutex = Lock()
-		self.chunk = None
+		self.chunk_queue = []
 		self.remote_users = []
 
 		self.connection = pymumble3.Mumble(host, nick, port=port, password=password)
@@ -33,6 +33,7 @@ class MumbleServerInstance:
 		self.connection.set_receive_sound(1)
 		self.connection.start()
 		self.connection.is_ready()
+		self.connection.sound_output.set_audio_per_packet(0.02)
 
 	def forAllOthers(self, f):
 		for instance in instances:
@@ -82,44 +83,73 @@ class MumbleServerInstance:
 		channel = self.connection.my_channel()
 		channel.send_text_message(text)
 
-	def onAudio(self, user, chunk):
-		pcm = np.frombuffer(chunk.pcm, np.int16)
-		self.forAllOthers(lambda x: x.addAudioSignal(pcm))
-
-	def addAudioSignal(self, pcm):
+	def addToQueue(self, stamp, pcm):
 		self.mutex.acquire()
-		if self.chunk is None:
-			self.chunk = np.copy(pcm)
-		else:
-			self.chunk += pcm
+
+		for i, entry in enumerate(self.chunk_queue):
+			if stamp == entry[0]:
+				self.chunk_queue[i] = (stamp, np.add(entry[1], pcm))
+				self.mutex.release()
+				return
+			elif stamp < entry[0]:
+				pcm = np.copy(pcm)
+				self.chunk_queue.insert(i, (stamp, pcm))
+				self.mutex.release()
+				return
+
+		pcm = np.copy(pcm)
+		self.chunk_queue.append((stamp, pcm))
 		self.mutex.release()
+
+	def onAudio(self, user, chunk):
+		units = int(chunk.duration / 0.01)
+		for i in range(units):
+			part = chunk.extract_sound(0.01)
+			stamp = int(part.time * 100)
+			pcm = np.frombuffer(part.pcm, np.int16)
+			self.forAllOthers(lambda x: x.addToQueue(stamp, pcm))
 
 	def onDisconnect(self):
 		sys.exit(1)
 
-	def transmitAudio(self):
+	def transmitAudio(self, stamp):
 		self.mutex.acquire()
-		if self.chunk is not None:
-			self.connection.sound_output.add_sound(self.chunk.tobytes())
-			self.chunk = None
+
+		if not self.chunk_queue:
+			self.mutex.release()
+			return
+
+		curr, pcm = self.chunk_queue[0]
+		first_stamp = curr
+		last_stamp = curr
+		transmit_count = 0
+		while curr < stamp:
+			self.chunk_queue.pop(0)
+			self.connection.sound_output.add_sound(pcm.tobytes())
+			transmit_count += 1
+
+			if not self.chunk_queue:
+				break
+			curr, pcm = self.chunk_queue[0]
+			last_stamp = curr
+
 		self.mutex.release()
+
 
 def main():
 	for host, port, nick in servers:
 		print("connecting to {}:{} as {}".format(host, port, nick))
 		instances.append(MumbleServerInstance(host, nick, port))
 
-	i = 0
 	while True:
+		stamp = int((time.time() - 0.1) * 100)
 		for instance in instances:
-			instance.transmitAudio()
-		time.sleep(0.02)
+			instance.transmitAudio(stamp)
 
-		i += 1
-		if i >= 50:
-			for instance in instances:
-				instance.updateComment()
-			i = 0
+		for instance in instances:
+			instance.updateComment()
+
+		time.sleep(0.05)
 
 if __name__ == "__main__":
     main()
