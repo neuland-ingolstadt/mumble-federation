@@ -10,8 +10,8 @@ from pymumble_py3.callbacks import \
 
 servers = [
 	# host, port, nickname
-	("hopfenspace.org", 64738, "portal-to-neuland"),
-	("informatik.sexy", 64738, "portal-to-hopfenspace"),
+	("mumble.hopfenspace.org", 64738, "portal-to-neuland"),
+	("voice.informatik.sexy", 64738, "portal-to-hopfenspace"),
 ]
 
 instances = []
